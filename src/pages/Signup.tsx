@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
   createUserWithEmailAndPassword,
+  onAuthStateChanged,
 } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 
@@ -17,19 +18,56 @@ const Signup = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
 
+  // Check if already logged in
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        // Store user data
+        localStorage.setItem(
+          "user",
+          JSON.stringify({
+            uid: user.uid,
+            email: user.email,
+            displayName:
+              user.displayName || user.email?.split("@")[0] || "User",
+            photoURL: user.photoURL,
+          }),
+        );
+        localStorage.setItem("isLoggedIn", "true");
+        navigate("/dashboard", { replace: true });
+      }
+    });
+
+    return () => unsubscribe();
+  }, [auth, navigate]);
+
   const signUpWithGoogle = async () => {
     setAuthing(true);
+    setError("");
 
-    signInWithPopup(auth, new GoogleAuthProvider())
-      .then((response) => {
-        console.log(response.user.uid);
-        navigate("/");
-      })
-      .catch((error) => {
-        console.log(error);
-        setError(error.message);
-        setAuthing(false);
-      });
+    try {
+      const response = await signInWithPopup(auth, new GoogleAuthProvider());
+      console.log(response.user.uid);
+
+      // Store user data
+      const user = response.user;
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || user.email?.split("@")[0] || "User",
+          photoURL: user.photoURL,
+        }),
+      );
+      localStorage.setItem("isLoggedIn", "true");
+
+      navigate("/dashboard");
+    } catch (error: any) {
+      console.log(error);
+      setError(error.message);
+      setAuthing(false);
+    }
   };
 
   const signUpWithEmail = async () => {
@@ -41,16 +79,33 @@ const Signup = () => {
     setAuthing(true);
     setError("");
 
-    createUserWithEmailAndPassword(auth, email, password)
-      .then((response) => {
-        console.log(response.user.uid);
-        navigate("/");
-      })
-      .catch((error) => {
-        console.log(error);
-        setError(error.message);
-        setAuthing(false);
-      });
+    try {
+      const response = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password,
+      );
+      console.log(response.user.uid);
+
+      // Store user data
+      const user = response.user;
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || user.email?.split("@")[0] || "User",
+          photoURL: user.photoURL,
+        }),
+      );
+      localStorage.setItem("isLoggedIn", "true");
+
+      navigate("/dashboard");
+    } catch (error: any) {
+      console.log(error);
+      setError(error.message);
+      setAuthing(false);
+    }
   };
 
   return (
@@ -151,6 +206,24 @@ const Signup = () => {
             disabled={authing}
             className="w-full bg-transparent border border-gray-700 text-white font-semibold rounded-md py-3 text-center flex items-center justify-center cursor-pointer hover:bg-white/5 transition disabled:opacity-60"
           >
+            <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+              <path
+                fill="#FFFFFF"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"
+              />
+              <path
+                fill="#FFFFFF"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+              />
+              <path
+                fill="#FFFFFF"
+                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+              />
+              <path
+                fill="#FFFFFF"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+              />
+            </svg>
             Sign up with Google
           </button>
 

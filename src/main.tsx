@@ -1,34 +1,32 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import App from "./App";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
-import AuthRoute from "./components/AuthRoute";
+import ProtectedRoute from "./components/layout/ProtectedRoute";
+import DashboardLayout from "./components/layout/DashboardLayout";
+import Dashboard from "./pages/Dashboard";
+import Manuscripts from "./pages/Manuscripts";
 import "./index.css";
-
-import {
-  BrowserRouter as Router,
-  Routes,
-  Route,
-  Navigate,
-} from "react-router-dom";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <Router>
+    <BrowserRouter>
       <Routes>
-        <Route
-          path="/"
-          element={
-            <AuthRoute>
-              <App />
-            </AuthRoute>
-          }
-        />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
-        <Route path="*" element={<Navigate to="/" />} />
+
+        <Route element={<ProtectedRoute />}>
+          <Route element={<DashboardLayout />}>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/manuscripts" element={<Manuscripts />} />
+          </Route>
+        </Route>
+
+        <Route path="*" element={<Navigate to="/dashboard" />} />
       </Routes>
-    </Router>
+    </BrowserRouter>
   </React.StrictMode>,
 );

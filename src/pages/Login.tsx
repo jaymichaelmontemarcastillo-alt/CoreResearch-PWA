@@ -1,5 +1,9 @@
-import { useState } from "react";
-import { signInWithPopup, signInWithEmailAndPassword } from "firebase/auth";
+import { useState, useEffect } from "react";
+import {
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+} from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 import { auth, googleProvider } from "../firebase/firebase";
 
@@ -11,6 +15,29 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
+  // Check if already logged in
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        // Store user data
+        localStorage.setItem(
+          "user",
+          JSON.stringify({
+            uid: user.uid,
+            email: user.email,
+            displayName:
+              user.displayName || user.email?.split("@")[0] || "User",
+            photoURL: user.photoURL,
+          }),
+        );
+        localStorage.setItem("isLoggedIn", "true");
+        navigate("/dashboard", { replace: true });
+      }
+    });
+
+    return () => unsubscribe();
+  }, [navigate]);
+
   // Google Sign In
   const signInWithGoogle = async () => {
     setAuthing(true);
@@ -19,7 +46,21 @@ const Login = () => {
     try {
       const response = await signInWithPopup(auth, googleProvider);
       console.log(response.user.uid);
-      navigate("/");
+
+      // Store user data
+      const user = response.user;
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || user.email?.split("@")[0] || "User",
+          photoURL: user.photoURL,
+        }),
+      );
+      localStorage.setItem("isLoggedIn", "true");
+
+      navigate("/dashboard");
     } catch (error: any) {
       console.log(error);
       setError(error.message);
@@ -34,9 +75,22 @@ const Login = () => {
 
     try {
       const response = await signInWithEmailAndPassword(auth, email, password);
-
       console.log(response.user.uid);
-      navigate("/");
+
+      // Store user data
+      const user = response.user;
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || user.email?.split("@")[0] || "User",
+          photoURL: user.photoURL,
+        }),
+      );
+      localStorage.setItem("isLoggedIn", "true");
+
+      navigate("/dashboard");
     } catch (error: any) {
       console.log(error);
       setError(error.message);
