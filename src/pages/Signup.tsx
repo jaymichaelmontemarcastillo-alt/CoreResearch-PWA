@@ -7,6 +7,23 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import { db } from "../firebase/firebase";
+
+// Define interface for user data
+interface UserData {
+  uid: string;
+  email: string | null;
+  first_name: string;
+  last_name: string;
+  role_id: string;
+  department_id: string;
+  status: string;
+  profile_image: string | null;
+  created_at: Date;
+  updated_at: Date;
+  is_approved: boolean;
+}
 
 const Signup = () => {
   const auth = getAuth();
@@ -16,41 +33,134 @@ const Signup = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [roleId, setRoleId] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const [error, setError] = useState("");
 
   // Check if already logged in
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        // Store user data
-        localStorage.setItem(
-          "user",
-          JSON.stringify({
-            uid: user.uid,
-            email: user.email,
-            displayName:
-              user.displayName || user.email?.split("@")[0] || "User",
-            photoURL: user.photoURL,
-          }),
-        );
-        localStorage.setItem("isLoggedIn", "true");
-        navigate("/dashboard", { replace: true });
+        try {
+          // Get user document from Firestore
+          const userDocRef = doc(db, "users", user.uid);
+          const userDoc = await getDoc(userDocRef);
+
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            localStorage.setItem(
+              "user",
+              JSON.stringify({
+                uid: user.uid,
+                email: user.email,
+                displayName:
+                  user.displayName || user.email?.split("@")[0] || "User",
+                photoURL: user.photoURL,
+                firstName: userData.first_name || "",
+                lastName: userData.last_name || "",
+                roleId: userData.role_id || "",
+                departmentId: userData.department_id || "",
+                isApproved: userData.is_approved || false,
+              }),
+            );
+            localStorage.setItem("isLoggedIn", "true");
+            navigate("/dashboard", { replace: true });
+          }
+        } catch (error) {
+          console.error("Error fetching user data:", error);
+        }
       }
     });
 
     return () => unsubscribe();
   }, [auth, navigate]);
 
+  // Helper function to create Firestore user document
+  const createUserDocument = async (
+    uid: string,
+    userData: Partial<UserData>,
+  ) => {
+    try {
+      console.log("Creating user document for UID:", uid);
+      console.log("User data:", userData);
+
+      const userDocRef = doc(db, "users", uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (!userDoc.exists()) {
+        // In the createUserDocument function
+        const newUserData: UserData = {
+          uid: uid,
+          email: userData.email || null,
+          first_name: userData.first_name || "",
+          last_name: userData.last_name || "",
+          role_id: userData.role_id || "student", // Default to student
+          department_id: userData.department_id || "",
+          status: "pending", // Changed from "active" to "pending"
+          profile_image: userData.profile_image || null,
+          created_at: new Date(),
+          updated_at: new Date(),
+          is_approved: false, // Always false until admin approves
+        };
+
+        console.log("Writing to Firestore:", newUserData);
+        await setDoc(userDocRef, newUserData);
+        console.log("Firestore document created successfully");
+        return newUserData;
+      } else {
+        console.log("User document already exists");
+        return userDoc.data();
+      }
+    } catch (error: any) {
+      console.error("Error creating user document:", error);
+      console.error("Error details:", error.message);
+      throw new Error(`Failed to create user profile: ${error.message}`);
+    }
+  };
+
   const signUpWithGoogle = async () => {
     setAuthing(true);
     setError("");
 
     try {
+      console.log("Starting Google sign-up...");
       const response = await signInWithPopup(auth, new GoogleAuthProvider());
-      console.log(response.user.uid);
+      console.log("Google sign-up successful:", response.user.uid);
 
-      // Store user data
       const user = response.user;
+
+      // Parse display name into first and last name
+      let firstName = "";
+      let lastName = "";
+      if (user.displayName) {
+        const nameParts = user.displayName.split(" ");
+        firstName = nameParts[0] || "";
+        lastName = nameParts.slice(1).join(" ") || "";
+      }
+
+      // Check if user already has a document
+      const userDocRef = doc(db, "users", user.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      let userData;
+      if (!userDoc.exists()) {
+        // Create user document in Firestore
+        userData = await createUserDocument(user.uid, {
+          email: user.email || "",
+          first_name: firstName,
+          last_name: lastName,
+          role_id: roleId || "",
+          department_id: departmentId || "",
+          profile_image: user.photoURL || null,
+        });
+      } else {
+        userData = userDoc.data();
+        console.log("User already exists in Firestore");
+      }
+
+      // Store user data in localStorage
       localStorage.setItem(
         "user",
         JSON.stringify({
@@ -58,21 +168,52 @@ const Signup = () => {
           email: user.email,
           displayName: user.displayName || user.email?.split("@")[0] || "User",
           photoURL: user.photoURL,
+          firstName: userData.first_name || "",
+          lastName: userData.last_name || "",
+          roleId: userData.role_id || "",
+          departmentId: userData.department_id || "",
+          isApproved: userData.is_approved || false,
         }),
       );
       localStorage.setItem("isLoggedIn", "true");
 
       navigate("/dashboard");
     } catch (error: any) {
-      console.log(error);
+      console.error("Google sign-up error:", error);
       setError(error.message);
       setAuthing(false);
     }
   };
 
   const signUpWithEmail = async () => {
+    // Validation
     if (password !== confirmPassword) {
       setError("Passwords do not match");
+      return;
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+
+    if (!firstName.trim()) {
+      setError("First name is required");
+      return;
+    }
+
+    if (!lastName.trim()) {
+      setError("Last name is required");
+      return;
+    }
+
+    if (!roleId) {
+      setError("Please select a role");
+      return;
+    }
+
+    if (!departmentId) {
+      setError("Please select a department");
       return;
     }
 
@@ -80,30 +221,71 @@ const Signup = () => {
     setError("");
 
     try {
+      console.log("Starting email sign-up...");
+      console.log("Email:", email);
+      console.log("First name:", firstName);
+      console.log("Last name:", lastName);
+      console.log("Role:", roleId);
+      console.log("Department:", departmentId);
+
+      // Create Firebase Auth user
       const response = await createUserWithEmailAndPassword(
         auth,
         email,
         password,
       );
-      console.log(response.user.uid);
+      console.log("Email sign-up successful:", response.user.uid);
 
-      // Store user data
       const user = response.user;
+
+      // Create user document in Firestore
+      const userData = await createUserDocument(user.uid, {
+        email: user.email || email,
+        first_name: firstName,
+        last_name: lastName,
+        role_id: roleId,
+        department_id: departmentId,
+        profile_image: null,
+      });
+
+      console.log("User data saved:", userData);
+
+      // Store user data in localStorage
       localStorage.setItem(
         "user",
         JSON.stringify({
           uid: user.uid,
-          email: user.email,
-          displayName: user.displayName || user.email?.split("@")[0] || "User",
-          photoURL: user.photoURL,
+          email: user.email || email,
+          displayName:
+            `${firstName} ${lastName}` || user.email?.split("@")[0] || "User",
+          photoURL: null,
+          firstName: userData.first_name || "",
+          lastName: userData.last_name || "",
+          roleId: userData.role_id || "",
+          departmentId: userData.department_id || "",
+          isApproved: userData.is_approved || false,
         }),
       );
       localStorage.setItem("isLoggedIn", "true");
 
       navigate("/dashboard");
     } catch (error: any) {
-      console.log(error);
-      setError(error.message);
+      console.error("Email sign-up error:", error);
+      console.error("Error code:", error.code);
+      console.error("Error message:", error.message);
+
+      // Handle specific Firebase Auth errors
+      if (error.code === "auth/email-already-in-use") {
+        setError("This email is already registered. Please sign in instead.");
+      } else if (error.code === "auth/invalid-email") {
+        setError("Invalid email address. Please check and try again.");
+      } else if (error.code === "auth/weak-password") {
+        setError("Password is too weak. Please use at least 6 characters.");
+      } else {
+        setError(
+          error.message || "Failed to create account. Please try again.",
+        );
+      }
       setAuthing(false);
     }
   };
@@ -140,7 +322,7 @@ const Signup = () => {
       </div>
 
       {/* Right Side - Signup Form */}
-      <div className="w-1/2 h-full bg-[#111318] flex flex-col p-20 justify-center">
+      <div className="w-1/2 h-full bg-[#111318] flex flex-col p-20 justify-center overflow-y-auto">
         <div className="w-full flex flex-col max-w-[450px] mx-auto">
           <div className="w-full flex flex-col mb-8 text-white">
             <h3 className="text-3xl font-bold mb-2">Create Account</h3>
@@ -150,6 +332,31 @@ const Signup = () => {
           </div>
 
           <div className="w-full flex flex-col">
+            {/* First Name */}
+            <div className="mb-2 text-gray-300 text-sm font-medium">
+              First Name
+            </div>
+            <input
+              type="text"
+              placeholder="Enter your first name"
+              className="w-full text-white py-3 px-4 mb-6 bg-[#1a1d24] border border-gray-700 rounded-md outline-none focus:border-blue-500"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+            />
+
+            {/* Last Name */}
+            <div className="mb-2 text-gray-300 text-sm font-medium">
+              Last Name
+            </div>
+            <input
+              type="text"
+              placeholder="Enter your last name"
+              className="w-full text-white py-3 px-4 mb-6 bg-[#1a1d24] border border-gray-700 rounded-md outline-none focus:border-blue-500"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+            />
+
+            {/* Email */}
             <div className="mb-2 text-gray-300 text-sm font-medium">
               Institutional email
             </div>
@@ -161,17 +368,50 @@ const Signup = () => {
               onChange={(e) => setEmail(e.target.value)}
             />
 
+            {/* Role ID */}
+            <div className="mb-2 text-gray-300 text-sm font-medium">Role</div>
+            <select
+              className="w-full text-white py-3 px-4 mb-6 bg-[#1a1d24] border border-gray-700 rounded-md outline-none focus:border-blue-500"
+              value={roleId}
+              onChange={(e) => setRoleId(e.target.value)}
+            >
+              <option value="">Select your role</option>
+              <option value="admin">Admin</option>
+              <option value="faculty">Faculty</option>
+              <option value="researcher">Researcher</option>
+              <option value="student">Student</option>
+            </select>
+
+            {/* Department ID */}
+            <div className="mb-2 text-gray-300 text-sm font-medium">
+              Department
+            </div>
+            <select
+              className="w-full text-white py-3 px-4 mb-6 bg-[#1a1d24] border border-gray-700 rounded-md outline-none focus:border-blue-500"
+              value={departmentId}
+              onChange={(e) => setDepartmentId(e.target.value)}
+            >
+              <option value="">Select your department</option>
+              <option value="cs">Computer Science</option>
+              <option value="eng">Engineering</option>
+              <option value="med">Medicine</option>
+              <option value="sci">Science</option>
+              <option value="hum">Humanities</option>
+            </select>
+
+            {/* Password */}
             <div className="mb-2 text-gray-300 text-sm font-medium">
               Password
             </div>
             <input
               type="password"
-              placeholder="Create a password"
+              placeholder="Create a password (min 6 characters)"
               className="w-full text-white py-3 px-4 mb-6 bg-[#1a1d24] border border-gray-700 rounded-md outline-none focus:border-blue-500"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
 
+            {/* Confirm Password */}
             <div className="mb-2 text-gray-300 text-sm font-medium">
               Confirm Password
             </div>
@@ -191,7 +431,7 @@ const Signup = () => {
             disabled={authing}
             className="w-full bg-blue-500 text-white font-semibold py-3 rounded-md hover:bg-blue-600 transition disabled:opacity-60"
           >
-            Sign up with Email
+            {authing ? "Creating Account..." : "Sign up with Email"}
           </button>
 
           <div className="w-full flex items-center justify-center relative py-4 mt-2">
